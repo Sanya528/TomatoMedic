@@ -19,7 +19,7 @@ CLASS_NAMES = [
 # Hugging Face Inference Client
 client = InferenceClient(
     model="microsoft/Phi-3-mini-4k-instruct",
-    token="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" 
+    token="<YOUR_TOKEN>" 
 )
 
 def get_disease_info(disease_name):
@@ -241,3 +241,4 @@ with st.sidebar:
     if st.button("Reset Session"):
         reset_flow()
         st.rerun()
+
