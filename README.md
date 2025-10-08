@@ -2,43 +2,25 @@
 ├── app.py
 
 ├──models
-
     ├── densenet_model.h5
-    
     ├── resnet_model.h5
-    
     ├── mobilenet_model.h5
-    
     ├── vgg_model.h5
     
 └── captures
-
     ├── 01635414.jpg
-    
     ├── 1-29.png
-    
     ├── 607-155-2.jpg
-    
     ├── 770x540_yellow_leaf_curl.jpg
-    
     ├── Apple_tree_leaf.jpg
-    
     ├── C0373171-Two-spot_spider_mite_damage_to_tomato_plant.jpg
-    
     ├── bacterial-spot_tomatoes_featured.jpg
-    
     ├── images.jpeg
-    
     ├── lateblightTom_lesion.jpg
-    
     ├── lateblightTom_lesion3.jpg
-    
     ├── mite_twospotted_spider_dmg_eggplant_jb.jpg
-    
     ├── target-spot-of-tomato-2-original.jpg
-    
     ├── target-spot-of-tomato-3-original.jpg
-    
     └── top-leaf-mold-Fulva-fulvea-WN.jpg
 
 
