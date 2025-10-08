@@ -7,7 +7,9 @@ from tensorflow.keras.models import load_model
 from collections import Counter
 from huggingface_hub import InferenceClient
 
+# -------------------------
 # Constants
+# -------------------------
 MODEL_DIR = "models"
 MODEL_FILES = ["densenet_model.h5", "resnet_model.h5", "vgg_model.h5", "mobilenet_model.h5"]
 CLASS_NAMES = [
@@ -16,33 +18,58 @@ CLASS_NAMES = [
     'Tomato_mosaic_virus', 'Healthy'
 ]
 
-# Hugging Face Inference Client
-client = InferenceClient(
-    model="microsoft/Phi-3-mini-4k-instruct",
-    token="<YOUR_TOKEN>" 
-)
+# -------------------------
+# Hugging Face Client
+# -------------------------
+HF_TOKEN = "hf_***"  # enter your token here
+client = InferenceClient(provider="novita", api_key=HF_TOKEN)
 
+# -------------------------
+# Disease Info
+# -------------------------
 def get_disease_info(disease_name):
-    prompt = f"""Provide concise treatment information for {disease_name} in exactly this format:
+    prompt = f"""
+    You are TomatoMedic, an AI assistant for tomato plant health.
+    Provide concise, structured information about {disease_name} in this format:
 
-Symptoms: [list 2-3 main symptoms separated by commas] 
+    Symptoms:
+    - ...
 
-Treatment: [list 2-3 treatments separated by commas] 
+    Treatment:
+    - ...
 
-Prevention: [list 2-3 prevention methods separated by commas]
-"""
+    Prevention:
+    - ...
+    """
     try:
-        response = client.chat.completions.create(
+        completion = client.chat.completions.create(
+            model="openai/gpt-oss-20b",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=150,
-            temperature=0.4
         )
-        return response.choices[0].message.content
+        return completion.choices[0].message["content"]
     except Exception as e:
-        st.error(f"Error retrieving info: {e}")
-        return None
+        return f"Error retrieving info: {e}"
 
-# Session state
+# -------------------------
+# Chatbot with memory
+# -------------------------
+def chatbot_response():
+    try:
+        messages = [{"role": "system", "content": "You are TomatoMedic, a helpful assistant for tomato plant health."}]
+        for role, msg in st.session_state.chat_history:
+            messages.append({"role": "user" if role == "You" else "assistant", "content": msg})
+
+        completion = client.chat.completions.create(
+            model="openai/gpt-oss-20b",
+            messages=messages,
+        )
+        return completion.choices[0].message["content"]
+    except Exception as e:
+        return f"Chatbot error: {e}"
+
+# -------------------------
+# Session State
+# -------------------------
 if 'stage' not in st.session_state:
     st.session_state.stage = 'upload'
 if 'current_image' not in st.session_state:
@@ -53,12 +80,12 @@ if 'results' not in st.session_state:
     st.session_state.results = []
 if 'analysis_done' not in st.session_state:
     st.session_state.analysis_done = False
-if 'use_camera' not in st.session_state:
-    st.session_state.use_camera = False
-if 'chat_mode' not in st.session_state:
-    st.session_state.chat_mode = False
+if 'chat_history' not in st.session_state:
+    st.session_state.chat_history = []
 
-# Load models
+# -------------------------
+# Load ML Models
+# -------------------------
 @st.cache_resource
 def load_models():
     models = []
@@ -73,6 +100,9 @@ def load_models():
 
 models = load_models()
 
+# -------------------------
+# Image Processing
+# -------------------------
 def check_image_quality(image):
     np_img = np.array(image)
     gray = cv2.cvtColor(np_img, cv2.COLOR_RGB2GRAY) if len(np_img.shape) == 3 else np_img
@@ -80,16 +110,14 @@ def check_image_quality(image):
     if fm < 100:
         return False, f"Image is too blurry (sharpness score: {fm:.1f})."
     if image.size[0] < 224 or image.size[1] < 224:
-        return False, "Image resolution too low (min 224x224 pixels)."
+        return False, "Image resolution too low (min 224x224)."
     return True, "OK"
 
 def detect_tomato_leaf(img):
     img = img.resize((224, 224))
     np_img = np.array(img)
     hsv = cv2.cvtColor(np_img, cv2.COLOR_RGB2HSV)
-    lower_green = np.array([35, 50, 50])
-    upper_green = np.array([85, 255, 255])
-    mask = cv2.inRange(hsv, lower_green, upper_green)
+    mask = cv2.inRange(hsv, np.array([35, 50, 50]), np.array([85, 255, 255]))
     green_ratio = np.sum(mask > 0) / (224 * 224)
     return green_ratio > 0.1, green_ratio * 100
 
@@ -106,14 +134,16 @@ def predict_disease(image):
             pred = model.predict(processed, verbose=0)
             predicted_index = np.argmax(pred)
             if predicted_index < len(CLASS_NAMES):
-                label = CLASS_NAMES[predicted_index]
-                predictions.append(label)
+                predictions.append(CLASS_NAMES[predicted_index])
         except Exception as e:
             st.error(f"Prediction error: {e}")
     if not predictions:
         return "Prediction failed", []
     return Counter(predictions).most_common(1)[0][0], predictions
 
+# -------------------------
+# UI Sections
+# -------------------------
 def upload_section():
     st.header("Upload or Capture Leaf Image")
     tab1, tab2 = st.tabs(["Upload", "Camera"])
@@ -151,12 +181,11 @@ def leaf_check_section():
     is_leaf, conf = detect_tomato_leaf(img)
     st.session_state.is_leaf = is_leaf
     if is_leaf:
-        st.success(f"Tomato leaf detected")
+        st.success("Tomato leaf detected")
         st.session_state.stage = 'analysis'
         st.rerun()
     else:
         st.error("Not a tomato leaf. Upload another image.")
-
 
 def analysis_section():
     st.header("Disease Analysis")
@@ -166,68 +195,59 @@ def analysis_section():
         if diagnosis == "Prediction failed":
             st.error("Could not analyze. Try another image.")
             return
-        st.session_state.results.append({
-            'image': img,
-            'diagnosis': diagnosis
-        })
+        st.session_state.results.append({'image': img, 'diagnosis': diagnosis})
         st.session_state.analysis_done = True
+
     result = st.session_state.results[-1]
     st.subheader(f"Diagnosis: {result['diagnosis']}")
     if result['diagnosis'] != "Healthy":
         with st.spinner("Fetching treatment info..."):
             info = get_disease_info(result['diagnosis'])
             if info:
-                st.markdown(f"""
-                <div class="treatment-line">{info}</div>
-                """, unsafe_allow_html=True)
+                st.markdown(f"<div>{info}</div>", unsafe_allow_html=True)
     else:
         st.success("Leaf appears healthy. No treatment needed.")
 
-    if st.button("Ask more about this disease"):
-        st.session_state.chat_mode = True
+    # Chat
+    st.markdown("---")
+    st.subheader("💬 Ask TomatoMedic")
+
+    for role, msg in st.session_state.chat_history:
+        if role == "You":
+            st.markdown(f"**🧑 {role}:** {msg}")
+        else:
+            st.markdown(f"**🤖 {role}:** {msg}")
+
+    user_input = st.chat_input("Ask another question about tomato plant health...")
+    if user_input:
+        st.session_state.chat_history.append(("You", user_input))
+        reply = chatbot_response()
+        st.session_state.chat_history.append(("TomatoMedic", reply))
         st.rerun()
 
-def chatbot_interface():
-    st.header("Disease Chat Assistant")
-    diagnosis = st.session_state.results[-1]['diagnosis']
-    st.info(f"Ask anything about: **{diagnosis}**")
-    query = st.text_input("Your question:")
-    if query:
-        with st.spinner("Responding..."):
-            prompt = f"""You are a plant disease assistant. The diagnosed disease is {diagnosis}.
-Answer the following question factually and clearly:
-{query}"""
-            try:
-                response = client.chat.completions.create(
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=250
-                )
-                st.success(response.choices[0].message.content)
-            except Exception as e:
-                st.error(f"Error: {e}")
-
-# Reset all state
+# -------------------------
+# Reset
+# -------------------------
 def reset_flow():
     st.session_state.stage = 'upload'
     st.session_state.current_image = None
     st.session_state.is_leaf = False
     st.session_state.analysis_done = False
     st.session_state.results = []
-    st.session_state.chat_mode = False
+    st.session_state.chat_history = []
 
-# Main App
+# -------------------------
+# Main
+# -------------------------
 st.set_page_config(page_title="TomatoMedic", page_icon="🍅")
 st.title("TomatoMedic")
 
-if st.session_state.chat_mode:
-    chatbot_interface()
-elif st.session_state.stage == 'upload':
+if st.session_state.stage == 'upload':
     upload_section()
 elif st.session_state.stage == 'leaf_check':
     leaf_check_section()
 elif st.session_state.stage == 'analysis':
     analysis_section()
-
 
 with st.sidebar:
     st.header("Image Tips for Best Results")
@@ -235,10 +255,9 @@ with st.sidebar:
     - Use a **clear, centered** tomato leaf.
     - Ensure **bright, natural lighting**.
     - Avoid **blurry or low-res images**.
-    - Try to capture **mostly the leaf**, not background.
-    - Frame the leaf with **minimal clutter** around it.
+    - Capture **mostly the leaf**, not background.
+    - Keep surroundings **minimal**.
     """)
     if st.button("Reset Session"):
         reset_flow()
         st.rerun()
-
